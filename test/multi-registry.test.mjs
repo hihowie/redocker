@@ -7,7 +7,7 @@ const realFetch = globalThis.fetch;
 let calls = [];
 globalThis.fetch = async (input, init = {}) => {
   const url = typeof input === "string" ? input : input.url;
-  calls.push({ url, headers: init.headers });
+  calls.push({ url, headers: init.headers, method: init.method || "GET", body: init.body });
   if (url.endsWith("/v2/")) {
     return new Response("{}", {
       status: 401,
@@ -89,6 +89,12 @@ check("subdomain docker.* single-name -> 301 library", rr.status === 301 && (rr.
 // --- Client credential pass-through (private pulls) ---
 calls = []; await handleRequest(new Request("https://ghcr.redocker.8908900.xyz/v2/auth?service=ghcr.io&scope=repository:owner/private:pull", { headers: { authorization: "Basic CLIENTGHCR" } }), ENV);
 check("token(ghcr subdomain) forwards CLIENT creds upstream", authOf("https://auth.probe/token") === "Basic CLIENTGHCR", authOf("https://auth.probe/token"));
+
+calls = []; await handleRequest(new Request("https://ghcr.redocker.8908900.xyz/v2/auth?service=ghcr.io&scope=repository:owner/private:pull", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "grant_type=password&username=test&password=secret" }), ENV);
+const postTokenCall = calls.find((c) => c.url.startsWith("https://auth.probe/token"));
+check("token(ghcr subdomain) forwards OAuth POST", postTokenCall?.method === "POST", postTokenCall?.method);
+check("token(ghcr subdomain) forwards OAuth form", postTokenCall && await new Response(postTokenCall.body).text() === "grant_type=password&username=test&password=secret", "form missing");
+check("token(ghcr subdomain) keeps form content type", new Headers(postTokenCall?.headers).get("content-type") === "application/x-www-form-urlencoded", "content type missing");
 
 calls = []; await handleRequest(new Request("https://proxy.test/v2/auth?service=registry.docker.io&scope=repository:me/private:pull", { headers: { authorization: "Basic CLIENTHUB" } }), ENV);
 check("token(docker hub) client creds OVERRIDE server PAT", authOf("https://auth.docker.io/token") === "Basic CLIENTHUB", authOf("https://auth.docker.io/token"));

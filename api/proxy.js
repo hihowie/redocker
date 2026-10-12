@@ -5,7 +5,8 @@
 import { handleNode, readEnv } from "../src/node-adapter.js";
 
 // Hobby plan allows up to 300s; large layers over slow links need the headroom.
-export const config = { maxDuration: 300 };
+// Docker 的 OAuth POST 表单必须作为原始请求流交给代理转发。
+export const config = { maxDuration: 300, api: { bodyParser: false } };
 
 const env = readEnv();
 

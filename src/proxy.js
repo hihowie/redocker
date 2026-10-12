@@ -173,7 +173,7 @@ function libraryExpand(url, pathname, search) {
   return null;
 }
 
-async function handleToken(url, env, clientAuth, hostRegistry) {
+async function handleToken(request, url, env, clientAuth, hostRegistry) {
   const service = url.searchParams.get("service") || DEFAULTS.service;
   const isHub = hostRegistry
     ? isDockerHub(hostRegistry)
@@ -189,7 +189,13 @@ async function handleToken(url, env, clientAuth, hostRegistry) {
     else if (env.DOCKER_USERNAME && env.DOCKER_PASSWORD) {
       headers.set("authorization", "Basic " + btoa(`${env.DOCKER_USERNAME}:${env.DOCKER_PASSWORD}`));
     }
-    return forward(await fetch(`${authBase}/token${url.search}`, { headers }));
+    if (request.headers.has("content-type")) headers.set("content-type", request.headers.get("content-type"));
+    const init = { method: request.method, headers };
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      init.body = request.body;
+      init.duplex = "half";
+    }
+    return forward(await fetch(`${authBase}/token${url.search}`, init));
   }
 
   // Other registries: discover the realm by probing the registry's /v2/, then
@@ -207,9 +213,16 @@ async function handleToken(url, env, clientAuth, hostRegistry) {
   }
   const headers = new Headers({ accept: "application/json" });
   if (clientAuth) headers.set("authorization", clientAuth);
+  if (request.headers.has("content-type")) headers.set("content-type", request.headers.get("content-type"));
   const sep = realm.includes("?") ? "&" : "?";
   const tokenUrl = `${realm}${sep}${url.search.replace(/^\?/, "")}`;
-  return forward(await fetch(tokenUrl, { headers }));
+  // Docker 发放私有镜像令牌时会用 OAuth POST；必须转发表单和方法，不能改写成匿名 GET。
+  const init = { method: request.method, headers };
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    init.body = request.body;
+    init.duplex = "half";
+  }
+  return forward(await fetch(tokenUrl, init));
 }
 
 async function proxyV2(request, url, route, path) {
@@ -281,7 +294,7 @@ export async function handleRequest(request, env = {}) {
   // Our rewritten token realm lands here. Forward the client's own credentials
   // (private pulls) and the host-pinned registry (subdomain mode).
   if (pathname === "/v2/auth") {
-    return handleToken(url, env, clientAuth, hostRegistry);
+    return handleToken(request, url, env, clientAuth, hostRegistry);
   }
 
   // Registry v2 base ping. On a registry subdomain, proxy to THAT registry so
